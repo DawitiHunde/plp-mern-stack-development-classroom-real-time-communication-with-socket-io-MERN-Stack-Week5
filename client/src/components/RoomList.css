@@ -1,0 +1,100 @@
+.room-list {
+  padding: 10px;
+}
+
+.room-item {
+  width: 100%;
+  padding: 10px 15px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+  transition: background 0.2s;
+  color: #333;
+  font-weight: 500;
+}
+
+.room-item:hover {
+  background: #f8f9fa;
+}
+
+.room-item.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.unread-badge {
+  background: #f44336;
+  color: white;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.room-item.active .unread-badge {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.create-room-btn {
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  background: #f8f9fa;
+  border: 2px dashed #667eea;
+  border-radius: 8px;
+  color: #667eea;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.create-room-btn:hover {
+  background: #e9ecef;
+}
+
+.new-room-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  margin-top: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.new-room-form input {
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.new-room-form button {
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.new-room-form button[type="submit"] {
+  background: #667eea;
+  color: white;
+}
+
+.new-room-form button[type="button"] {
+  background: #f44336;
+  color: white;
+}
+
+.new-room-form button:hover {
+  opacity: 0.9;
+}
+
+

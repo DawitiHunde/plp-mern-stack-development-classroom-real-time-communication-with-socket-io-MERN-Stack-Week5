@@ -1,0 +1,48 @@
+.user-list {
+  padding: 10px;
+}
+
+.no-users {
+  padding: 20px;
+  text-align: center;
+  color: #999;
+  font-style: italic;
+}
+
+.user-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-bottom: 5px;
+}
+
+.user-item:hover:not(.current-user) {
+  background: #f8f9fa;
+}
+
+.user-item.current-user {
+  background: #e3f2fd;
+  cursor: default;
+}
+
+.user-avatar {
+  font-size: 1.2rem;
+}
+
+.user-name {
+  flex: 1;
+  font-weight: 500;
+  color: #333;
+}
+
+.you-badge {
+  font-size: 0.75rem;
+  color: #666;
+  font-style: italic;
+}
+
+
