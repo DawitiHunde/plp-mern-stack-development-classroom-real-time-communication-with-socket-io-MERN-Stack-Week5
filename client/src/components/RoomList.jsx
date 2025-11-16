@@ -1,59 +1,82 @@
-import { useState } from 'react';
-import './RoomList.css';
+import { useState } from 'react'
+import './RoomList.css'
 
-function RoomList({ rooms, currentRoom, onRoomChange, unreadCounts }) {
-  const [newRoomName, setNewRoomName] = useState('');
-  const [showNewRoomInput, setShowNewRoomInput] = useState(false);
+function RoomList({ rooms, currentRoom, onSelectRoom, onCreateRoom, unreadCounts }) {
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [newRoomName, setNewRoomName] = useState('')
 
   const handleCreateRoom = (e) => {
-    e.preventDefault();
-    if (newRoomName.trim() && !rooms.includes(newRoomName.trim())) {
-      onRoomChange(newRoomName.trim());
-      setNewRoomName('');
-      setShowNewRoomInput(false);
+    e.preventDefault()
+    if (newRoomName.trim()) {
+      onCreateRoom(newRoomName)
+      setNewRoomName('')
+      setShowCreateForm(false)
     }
-  };
+  }
 
   return (
     <div className="room-list">
-      {rooms.map((room) => (
+      <div className="room-list-header">
+        <h3>Chat Rooms</h3>
         <button
-          key={room}
-          className={`room-item ${room === currentRoom ? 'active' : ''}`}
-          onClick={() => onRoomChange(room)}
+          className="create-room-btn"
+          onClick={() => setShowCreateForm(!showCreateForm)}
+          title="Create new room"
         >
-          <span>#{room}</span>
-          {unreadCounts[room] > 0 && (
-            <span className="unread-badge">{unreadCounts[room]}</span>
-          )}
+          +
         </button>
-      ))}
-      
-      {showNewRoomInput ? (
-        <form onSubmit={handleCreateRoom} className="new-room-form">
+      </div>
+
+      {showCreateForm && (
+        <form onSubmit={handleCreateRoom} className="create-room-form">
           <input
             type="text"
             placeholder="Room name"
             value={newRoomName}
             onChange={(e) => setNewRoomName(e.target.value)}
-            maxLength={20}
             autoFocus
+            maxLength={30}
           />
-          <button type="submit">Create</button>
-          <button type="button" onClick={() => setShowNewRoomInput(false)}>Cancel</button>
+          <div className="create-room-actions">
+            <button type="submit">Create</button>
+            <button type="button" onClick={() => {
+              setShowCreateForm(false)
+              setNewRoomName('')
+            }}>
+              Cancel
+            </button>
+          </div>
         </form>
-      ) : (
-        <button
-          className="create-room-btn"
-          onClick={() => setShowNewRoomInput(true)}
-        >
-          + New Room
-        </button>
       )}
+
+      <div className="rooms-container">
+        {rooms.map((room) => {
+          const unreadCount = unreadCounts[room.id] || 0
+          const isActive = room.id === currentRoom
+
+          return (
+            <div
+              key={room.id}
+              className={`room-item ${isActive ? 'active' : ''}`}
+              onClick={() => onSelectRoom(room.id)}
+            >
+              <div className="room-icon">
+                {room.type === 'private' ? '🔒' : '💬'}
+              </div>
+              <div className="room-info">
+                <div className="room-name">{room.name}</div>
+                <div className="room-type">{room.type}</div>
+              </div>
+              {unreadCount > 0 && (
+                <div className="unread-badge">{unreadCount}</div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
-  );
+  )
 }
 
-export default RoomList;
-
+export default RoomList
 

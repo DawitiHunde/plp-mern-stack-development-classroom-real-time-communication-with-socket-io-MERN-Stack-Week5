@@ -1,15 +1,38 @@
-import { useState } from 'react';
-import './Login.css';
+import { useState, useEffect } from 'react'
+import './Login.css'
 
-function Login({ onLogin }) {
-  const [username, setUsername] = useState('');
+function Login({ onLogin, socket, onJoined }) {
+  const [username, setUsername] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (socket) {
+      socket.on('joined', (data) => {
+        onJoined(data)
+      })
+
+      socket.on('error', (data) => {
+        setError(data.message)
+      })
+
+      return () => {
+        socket.off('joined')
+        socket.off('error')
+      }
+    }
+  }, [socket, onJoined])
 
   const handleSubmit = (e) => {
-    e.preventDefault();
-    if (username.trim()) {
-      onLogin(username.trim());
+    e.preventDefault()
+    setError('')
+    
+    if (username.trim() === '') {
+      setError('Please enter a username')
+      return
     }
-  };
+
+    onLogin(username.trim())
+  }
 
   return (
     <div className="login-container">
@@ -24,15 +47,14 @@ function Login({ onLogin }) {
             onChange={(e) => setUsername(e.target.value)}
             maxLength={20}
             autoFocus
-            required
           />
+          {error && <div className="error-message">{error}</div>}
           <button type="submit">Join Chat</button>
         </form>
       </div>
     </div>
-  );
+  )
 }
 
-export default Login;
-
+export default Login
 

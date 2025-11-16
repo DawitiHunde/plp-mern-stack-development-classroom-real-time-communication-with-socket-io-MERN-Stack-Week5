@@ -1,369 +1,526 @@
-// server.js - Main server file for Socket.io chat application
-
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
+const socketIo = require('socket.io');
 const cors = require('cors');
-const dotenv = require('dotenv');
 const path = require('path');
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
 
-// Load environment variables
-dotenv.config();
-
-// Initialize Express app
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
+
+// Configure CORS for Socket.io
+const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    methods: ['GET', 'POST'],
-    credentials: true,
-  },
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    methods: ["GET", "POST"],
+    credentials: true
+  }
 });
 
-// Middleware
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Store connected users, messages, rooms, and state
-const users = {}; // { socketId: { username, id, room } }
-const messages = {}; // { room: [messages] }
-const typingUsers = {}; // { room: { socketId: username } }
-const rooms = ['general', 'random', 'tech', 'gaming']; // Default rooms
-const userRooms = {}; // Track which rooms each user is in
-const messageReactions = {}; // { messageId: { emoji: [userIds] } }
-const readReceipts = {}; // { messageId: [userId] }
-
-// Initialize default room messages
-rooms.forEach(room => {
-  messages[room] = [];
-  typingUsers[room] = {};
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${uuidv4()}-${file.originalname}`;
+    cb(null, uniqueName);
+  }
 });
 
-// Socket.io connection handler
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx|txt/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Invalid file type'));
+    }
+  }
+});
+
+// Create uploads directory if it doesn't exist
+const fs = require('fs');
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads');
+}
+
+// Serve uploaded files
+app.use('/uploads', express.static('uploads'));
+
+// In-memory storage (in production, use a database)
+const users = new Map(); // socketId -> user info
+const rooms = new Map(); // roomId -> room info
+const messages = new Map(); // roomId -> array of messages
+const typingUsers = new Map(); // roomId -> Set of typing user IDs
+
+// Default global room
+const GLOBAL_ROOM = 'global';
+rooms.set(GLOBAL_ROOM, {
+  id: GLOBAL_ROOM,
+  name: 'Global Chat',
+  type: 'public',
+  createdAt: new Date()
+});
+messages.set(GLOBAL_ROOM, []);
+
+// Helper functions
+function getUserBySocketId(socketId) {
+  return users.get(socketId);
+}
+
+function getUserByUsername(username) {
+  for (const [socketId, user] of users.entries()) {
+    if (user.username === username) {
+      return { socketId, ...user };
+    }
+  }
+  return null;
+}
+
+function getOnlineUsers() {
+  return Array.from(users.values());
+}
+
+function addMessage(roomId, message) {
+  if (!messages.has(roomId)) {
+    messages.set(roomId, []);
+  }
+  const roomMessages = messages.get(roomId);
+  roomMessages.push(message);
+  
+  // Keep only last 1000 messages per room
+  if (roomMessages.length > 1000) {
+    roomMessages.shift();
+  }
+  
+  return message;
+}
+
+// Socket.io connection handling
 io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
+  console.log('New client connected:', socket.id);
 
-  // Handle user joining with username
-  socket.on('user_join', ({ username, room = 'general' }) => {
-    users[socket.id] = { username, id: socket.id, room, joinedAt: new Date().toISOString() };
-    userRooms[socket.id] = [room];
-    socket.join(room);
+  // User joins with username
+  socket.on('join', (data) => {
+    const { username, avatar } = data;
     
-    // Send system message to room
-    const systemMessage = {
-      id: Date.now(),
-      system: true,
-      message: `${username} joined the chat`,
-      timestamp: new Date().toISOString(),
-      room,
-    };
-    messages[room].push(systemMessage);
-    io.to(room).emit('receive_message', systemMessage);
-    
-    // Broadcast user list and join event
-    io.emit('user_list', Object.values(users));
-    io.to(room).emit('user_joined', { username, id: socket.id, room });
-    socket.emit('room_list', rooms);
-    socket.emit('current_room', room);
-    console.log(`${username} joined room: ${room}`);
-  });
+    if (!username || username.trim() === '') {
+      socket.emit('error', { message: 'Username is required' });
+      return;
+    }
 
-  // Handle joining a new room
-  socket.on('join_room', (room) => {
-    if (!rooms.includes(room)) {
-      rooms.push(room);
-      messages[room] = [];
-      typingUsers[room] = {};
-      io.emit('room_list', rooms);
+    // Check if username is already taken
+    const existingUser = getUserByUsername(username);
+    if (existingUser && existingUser.socketId !== socket.id) {
+      socket.emit('error', { message: 'Username already taken' });
+      return;
     }
-    
-    if (!userRooms[socket.id]) {
-      userRooms[socket.id] = [];
-    }
-    
-    if (!userRooms[socket.id].includes(room)) {
-      userRooms[socket.id].push(room);
-      socket.join(room);
-      
-      if (users[socket.id]) {
-        const systemMessage = {
-          id: Date.now(),
-          system: true,
-          message: `${users[socket.id].username} joined ${room}`,
-          timestamp: new Date().toISOString(),
-          room,
-        };
-        messages[room].push(systemMessage);
-        io.to(room).emit('receive_message', systemMessage);
-      }
-      
-      // Send room history
-      socket.emit('room_history', { room, messages: messages[room].slice(-50) });
-      socket.emit('current_room', room);
-    }
-  });
 
-  // Handle leaving a room
-  socket.on('leave_room', (room) => {
-    socket.leave(room);
-    if (userRooms[socket.id]) {
-      userRooms[socket.id] = userRooms[socket.id].filter(r => r !== room);
-    }
-    
-    if (users[socket.id]) {
-      const systemMessage = {
-        id: Date.now(),
-        system: true,
-        message: `${users[socket.id].username} left ${room}`,
-        timestamp: new Date().toISOString(),
-        room,
-      };
-      messages[room].push(systemMessage);
-      io.to(room).emit('receive_message', systemMessage);
-    }
-  });
+    // Store user info
+    users.set(socket.id, {
+      id: socket.id,
+      username: username.trim(),
+      avatar: avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=random`,
+      joinedAt: new Date(),
+      status: 'online'
+    });
 
-  // Handle chat messages in a room
-  socket.on('send_message', (messageData) => {
-    const room = messageData.room || 'general';
-    const message = {
-      ...messageData,
-      id: Date.now() + Math.random(),
-      sender: users[socket.id]?.username || 'Anonymous',
-      senderId: socket.id,
-      timestamp: new Date().toISOString(),
-      room,
-      readBy: [],
-    };
-    
-    if (!messages[room]) {
-      messages[room] = [];
-    }
-    
-    messages[room].push(message);
-    
-    // Limit stored messages per room
-    if (messages[room].length > 500) {
-      messages[room] = messages[room].slice(-500);
-    }
-    
-    // Emit to room with acknowledgment
-    socket.emit('message_sent', { messageId: message.id, status: 'sent' });
-    io.to(room).emit('receive_message', message);
-    
-    // Send notification to users not in the room
-    Object.keys(users).forEach(userId => {
-      if (userId !== socket.id && userRooms[userId] && !userRooms[userId].includes(room)) {
-        io.to(userId).emit('notification', {
-          type: 'new_message',
-          room,
-          sender: message.sender,
-          message: message.message?.substring(0, 50) || 'New message',
-        });
-      }
+    // Join global room by default
+    socket.join(GLOBAL_ROOM);
+
+    // Notify user of successful join
+    socket.emit('joined', {
+      user: users.get(socket.id),
+      rooms: Array.from(rooms.values()),
+      onlineUsers: getOnlineUsers()
+    });
+
+    // Notify others in global room
+    socket.to(GLOBAL_ROOM).emit('userJoined', {
+      user: users.get(socket.id),
+      onlineUsers: getOnlineUsers()
+    });
+
+    // Send recent messages for global room
+    const recentMessages = messages.get(GLOBAL_ROOM) || [];
+    socket.emit('messages', {
+      roomId: GLOBAL_ROOM,
+      messages: recentMessages.slice(-50) // Last 50 messages
     });
   });
 
-  // Handle typing indicator
-  socket.on('typing', ({ isTyping, room = 'general' }) => {
-    if (users[socket.id]) {
-      const username = users[socket.id].username;
-      
-      if (!typingUsers[room]) {
-        typingUsers[room] = {};
+  // Join a room
+  socket.on('joinRoom', (data) => {
+    const { roomId } = data;
+    const user = getUserBySocketId(socket.id);
+    
+    if (!user) {
+      socket.emit('error', { message: 'You must join first' });
+      return;
+    }
+
+    if (!rooms.has(roomId)) {
+      socket.emit('error', { message: 'Room does not exist' });
+      return;
+    }
+
+    socket.join(roomId);
+    socket.emit('roomJoined', { roomId });
+
+    // Send recent messages for the room
+    const roomMessages = messages.get(roomId) || [];
+    socket.emit('messages', {
+      roomId,
+      messages: roomMessages.slice(-50)
+    });
+
+    // Notify others in the room
+    socket.to(roomId).emit('userJoinedRoom', {
+      user,
+      roomId
+    });
+  });
+
+  // Leave a room
+  socket.on('leaveRoom', (data) => {
+    const { roomId } = data;
+    const user = getUserBySocketId(socket.id);
+    
+    if (user) {
+      socket.leave(roomId);
+      socket.to(roomId).emit('userLeftRoom', {
+        user,
+        roomId
+      });
+    }
+  });
+
+  // Create a new room
+  socket.on('createRoom', (data) => {
+    const { name, type = 'public' } = data;
+    const user = getUserBySocketId(socket.id);
+    
+    if (!user) {
+      socket.emit('error', { message: 'You must join first' });
+      return;
+    }
+
+    const roomId = `room-${uuidv4()}`;
+    const newRoom = {
+      id: roomId,
+      name: name || `Room ${roomId.slice(0, 8)}`,
+      type: type,
+      createdBy: user.username,
+      createdAt: new Date()
+    };
+
+    rooms.set(roomId, newRoom);
+    messages.set(roomId, []);
+
+    // Join the room
+    socket.join(roomId);
+
+    // Notify all users about the new room
+    io.emit('roomCreated', { room: newRoom });
+
+    socket.emit('roomJoined', { roomId });
+  });
+
+  // Send message
+  socket.on('sendMessage', (data) => {
+    const { roomId, text, type = 'text', filename } = data;
+    const user = getUserBySocketId(socket.id);
+    
+    if (!user) {
+      socket.emit('error', { message: 'You must join first' });
+      return;
+    }
+
+    if (!rooms.has(roomId)) {
+      socket.emit('error', { message: 'Room does not exist' });
+      return;
+    }
+
+    const message = {
+      id: uuidv4(),
+      roomId,
+      userId: user.id,
+      username: user.username,
+      avatar: user.avatar,
+      text,
+      type,
+      filename: filename || null,
+      timestamp: new Date(),
+      readBy: [user.id],
+      reactions: {}
+    };
+
+    addMessage(roomId, message);
+
+    // Emit to all users in the room
+    io.to(roomId).emit('newMessage', { message });
+
+    // Stop typing indicator
+    if (typingUsers.has(roomId)) {
+      typingUsers.get(roomId).delete(user.id);
+      socket.to(roomId).emit('typing', {
+        roomId,
+        users: Array.from(typingUsers.get(roomId)).map(id => {
+          const u = Array.from(users.values()).find(usr => usr.id === id);
+          return u ? { id: u.id, username: u.username } : null;
+        }).filter(Boolean)
+      });
+    }
+  });
+
+  // Typing indicator
+  socket.on('typing', (data) => {
+    const { roomId, isTyping } = data;
+    const user = getUserBySocketId(socket.id);
+    
+    if (!user) return;
+
+    if (!typingUsers.has(roomId)) {
+      typingUsers.set(roomId, new Set());
+    }
+
+    if (isTyping) {
+      typingUsers.get(roomId).add(user.id);
+    } else {
+      typingUsers.get(roomId).delete(user.id);
+    }
+
+    socket.to(roomId).emit('typing', {
+      roomId,
+      users: Array.from(typingUsers.get(roomId)).map(id => {
+        const u = Array.from(users.values()).find(usr => usr.id === id);
+        return u ? { id: u.id, username: u.username } : null;
+      }).filter(Boolean)
+    });
+  });
+
+  // Mark message as read
+  socket.on('markAsRead', (data) => {
+    const { messageId, roomId } = data;
+    const user = getUserBySocketId(socket.id);
+    
+    if (!user) return;
+
+    const roomMessages = messages.get(roomId);
+    if (roomMessages) {
+      const message = roomMessages.find(m => m.id === messageId);
+      if (message && !message.readBy.includes(user.id)) {
+        message.readBy.push(user.id);
+        io.to(roomId).emit('messageRead', { messageId, userId: user.id });
       }
-      
-      if (isTyping) {
-        typingUsers[room][socket.id] = username;
+    }
+  });
+
+  // Add reaction to message
+  socket.on('addReaction', (data) => {
+    const { messageId, roomId, reaction } = data;
+    const user = getUserBySocketId(socket.id);
+    
+    if (!user) return;
+
+    const roomMessages = messages.get(roomId);
+    if (roomMessages) {
+      const message = roomMessages.find(m => m.id === messageId);
+      if (message) {
+        if (!message.reactions[reaction]) {
+          message.reactions[reaction] = [];
+        }
+        if (!message.reactions[reaction].includes(user.id)) {
+          message.reactions[reaction].push(user.id);
+          io.to(roomId).emit('reactionAdded', {
+            messageId,
+            reaction,
+            userId: user.id,
+            username: user.username
+          });
+        }
+      }
+    }
+  });
+
+  // Remove reaction from message
+  socket.on('removeReaction', (data) => {
+    const { messageId, roomId, reaction } = data;
+    const user = getUserBySocketId(socket.id);
+    
+    if (!user) return;
+
+    const roomMessages = messages.get(roomId);
+    if (roomMessages) {
+      const message = roomMessages.find(m => m.id === messageId);
+      if (message && message.reactions[reaction]) {
+        message.reactions[reaction] = message.reactions[reaction].filter(id => id !== user.id);
+        if (message.reactions[reaction].length === 0) {
+          delete message.reactions[reaction];
+        }
+        io.to(roomId).emit('reactionRemoved', {
+          messageId,
+          reaction,
+          userId: user.id
+        });
+      }
+    }
+  });
+
+  // Load more messages (pagination)
+  socket.on('loadMessages', (data) => {
+    const { roomId, beforeMessageId, limit = 50 } = data;
+    const user = getUserBySocketId(socket.id);
+    
+    if (!user) return;
+
+    const roomMessages = messages.get(roomId) || [];
+    let messagesToSend = roomMessages;
+
+    if (beforeMessageId) {
+      const beforeIndex = roomMessages.findIndex(m => m.id === beforeMessageId);
+      if (beforeIndex > 0) {
+        messagesToSend = roomMessages.slice(Math.max(0, beforeIndex - limit), beforeIndex);
       } else {
-        delete typingUsers[room][socket.id];
+        messagesToSend = [];
       }
-      
-      socket.to(room).emit('typing_users', { room, users: Object.values(typingUsers[room]) });
+    } else {
+      messagesToSend = roomMessages.slice(-limit);
     }
-  });
 
-  // Handle private messages
-  socket.on('private_message', ({ to, message }) => {
-    const messageData = {
-      id: Date.now() + Math.random(),
-      sender: users[socket.id]?.username || 'Anonymous',
-      senderId: socket.id,
-      receiverId: to,
-      message,
-      timestamp: new Date().toISOString(),
-      isPrivate: true,
-      readBy: [],
-    };
-    
-    // Send to receiver
-    socket.to(to).emit('private_message', messageData);
-    // Send back to sender
-    socket.emit('private_message', messageData);
-    
-    // Send notification
-    io.to(to).emit('notification', {
-      type: 'private_message',
-      sender: messageData.sender,
-      message: message.substring(0, 50),
+    socket.emit('messages', {
+      roomId,
+      messages: messagesToSend,
+      hasMore: beforeMessageId ? roomMessages.findIndex(m => m.id === beforeMessageId) > limit : false
     });
   });
 
-  // Handle message reactions
-  socket.on('add_reaction', ({ messageId, emoji }) => {
-    if (!messageReactions[messageId]) {
-      messageReactions[messageId] = {};
-    }
-    if (!messageReactions[messageId][emoji]) {
-      messageReactions[messageId][emoji] = [];
-    }
+  // Search messages
+  socket.on('searchMessages', (data) => {
+    const { roomId, query } = data;
+    const user = getUserBySocketId(socket.id);
     
-    if (!messageReactions[messageId][emoji].includes(socket.id)) {
-      messageReactions[messageId][emoji].push(socket.id);
-      io.emit('reaction_added', { messageId, emoji, userId: socket.id });
-    }
+    if (!user) return;
+
+    const roomMessages = messages.get(roomId) || [];
+    const searchResults = roomMessages.filter(m => 
+      m.text.toLowerCase().includes(query.toLowerCase())
+    ).slice(-50); // Limit to 50 results
+
+    socket.emit('searchResults', {
+      roomId,
+      query,
+      messages: searchResults
+    });
   });
 
-  socket.on('remove_reaction', ({ messageId, emoji }) => {
-    if (messageReactions[messageId] && messageReactions[messageId][emoji]) {
-      messageReactions[messageId][emoji] = messageReactions[messageId][emoji].filter(
-        id => id !== socket.id
-      );
-      if (messageReactions[messageId][emoji].length === 0) {
-        delete messageReactions[messageId][emoji];
-      }
-      io.emit('reaction_removed', { messageId, emoji, userId: socket.id });
+  // Private message
+  socket.on('sendPrivateMessage', (data) => {
+    const { recipientUsername, text, type = 'text' } = data;
+    const user = getUserBySocketId(socket.id);
+    
+    if (!user) {
+      socket.emit('error', { message: 'You must join first' });
+      return;
     }
-  });
 
-  // Handle read receipts
-  socket.on('mark_read', ({ messageId, room }) => {
-    if (!readReceipts[messageId]) {
-      readReceipts[messageId] = [];
+    const recipient = getUserByUsername(recipientUsername);
+    if (!recipient) {
+      socket.emit('error', { message: 'User not found' });
+      return;
     }
-    if (!readReceipts[messageId].includes(socket.id)) {
-      readReceipts[messageId].push(socket.id);
-      io.emit('read_receipt', { messageId, userId: socket.id });
-    }
-  });
 
-  // Handle file/image sharing
-  socket.on('send_file', ({ file, fileName, fileType, room = 'general' }) => {
+    // Create a private room ID (sorted usernames to ensure consistency)
+    const roomId = `private-${[user.username, recipientUsername].sort().join('-')}`;
+    
+    if (!rooms.has(roomId)) {
+      rooms.set(roomId, {
+        id: roomId,
+        name: `Private: ${user.username} & ${recipientUsername}`,
+        type: 'private',
+        participants: [user.username, recipientUsername],
+        createdAt: new Date()
+      });
+      messages.set(roomId, []);
+    }
+
     const message = {
-      id: Date.now() + Math.random(),
-      sender: users[socket.id]?.username || 'Anonymous',
-      senderId: socket.id,
-      fileName,
-      fileType,
-      file,
-      timestamp: new Date().toISOString(),
-      room,
-      isFile: true,
-      readBy: [],
+      id: uuidv4(),
+      roomId,
+      userId: user.id,
+      username: user.username,
+      avatar: user.avatar,
+      text,
+      type,
+      timestamp: new Date(),
+      readBy: [user.id],
+      reactions: {}
     };
-    
-    if (!messages[room]) {
-      messages[room] = [];
+
+    addMessage(roomId, message);
+
+    // Emit to both users
+    io.to(recipient.socketId).emit('newPrivateMessage', { message, from: user });
+    socket.emit('newPrivateMessage', { message, from: user });
+
+    // Notify recipient if they're not in the room
+    io.to(recipient.socketId).emit('privateMessageNotification', {
+      from: user,
+      message: text,
+      roomId
+    });
+  });
+
+  // Handle file upload
+  app.post('/api/upload', upload.single('file'), (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
     }
-    
-    messages[room].push(message);
-    io.to(room).emit('receive_message', message);
-  });
 
-  // Handle message search request
-  socket.on('search_messages', ({ query, room }) => {
-    const roomMessages = messages[room] || [];
-    const results = roomMessages.filter(msg => 
-      msg.message && msg.message.toLowerCase().includes(query.toLowerCase())
-    ).slice(-20);
-    socket.emit('search_results', results);
-  });
-
-  // Handle pagination request
-  socket.on('get_messages', ({ room, page = 0, limit = 50 }) => {
-    const roomMessages = messages[room] || [];
-    const start = roomMessages.length - (page + 1) * limit;
-    const end = roomMessages.length - page * limit;
-    const paginatedMessages = roomMessages.slice(Math.max(0, start), end);
-    socket.emit('messages_page', {
-      messages: paginatedMessages,
-      page,
-      hasMore: start > 0,
+    res.json({
+      url: `/uploads/${req.file.filename}`,
+      filename: req.file.originalname,
+      size: req.file.size,
+      mimetype: req.file.mimetype
     });
   });
 
-  // Get reactions for a message
-  socket.on('get_reactions', (messageId) => {
-    socket.emit('message_reactions', {
-      messageId,
-      reactions: messageReactions[messageId] || {},
-    });
-  });
-
-  // Handle disconnection
+  // Disconnect
   socket.on('disconnect', () => {
-    if (users[socket.id]) {
-      const { username, room } = users[socket.id];
+    const user = getUserBySocketId(socket.id);
+    
+    if (user) {
+      users.delete(socket.id);
       
-      // Notify all rooms user was in
-      if (userRooms[socket.id]) {
-        userRooms[socket.id].forEach(r => {
-          const systemMessage = {
-            id: Date.now(),
-            system: true,
-            message: `${username} left the chat`,
-            timestamp: new Date().toISOString(),
-            room: r,
-          };
-          messages[r].push(systemMessage);
-          io.to(r).emit('receive_message', systemMessage);
-        });
-      }
-      
-      io.emit('user_left', { username, id: socket.id });
-      console.log(`${username} left the chat`);
+      // Clear typing indicators
+      typingUsers.forEach((typingSet) => {
+        typingSet.delete(user.id);
+      });
+
+      // Notify others
+      io.emit('userLeft', {
+        user,
+        onlineUsers: getOnlineUsers()
+      });
     }
-    
-    // Clean up
-    delete users[socket.id];
-    delete userRooms[socket.id];
-    
-    // Clean up typing indicators in all rooms
-    Object.keys(typingUsers).forEach(room => {
-      delete typingUsers[room][socket.id];
-      io.to(room).emit('typing_users', { room, users: Object.values(typingUsers[room]) });
-    });
-    
-    io.emit('user_list', Object.values(users));
+
+    console.log('Client disconnected:', socket.id);
   });
 });
 
-// API routes
-app.get('/api/messages/:room', (req, res) => {
-  const room = req.params.room || 'general';
-  res.json(messages[room] || []);
-});
-
-app.get('/api/users', (req, res) => {
-  res.json(Object.values(users));
-});
-
-app.get('/api/rooms', (req, res) => {
-  res.json(rooms);
-});
-
-// Root route
-app.get('/', (req, res) => {
-  res.send('Socket.io Chat Server is running');
-});
-
-// Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Default rooms: ${rooms.join(', ')}`);
 });
 
-module.exports = { app, server, io }; 

@@ -1,100 +1,144 @@
-import { useState, useRef, useEffect } from 'react';
-import { useSocket } from '../socket/socket';
-import './MessageInput.css';
+import { useState, useRef, useEffect } from 'react'
+import axios from 'axios'
+import './MessageInput.css'
 
-function MessageInput({ currentRoom }) {
-  const { sendMessage, sendFile, setTyping } = useSocket();
-  const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const typingTimeoutRef = useRef(null);
-  const fileInputRef = useRef(null);
+function MessageInput({ onSendMessage, socket, currentRoom }) {
+  const [message, setMessage] = useState('')
+  const [isTyping, setIsTyping] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const typingTimeoutRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
+        clearTimeout(typingTimeoutRef.current)
       }
-      setTyping(false, currentRoom);
-    };
-  }, [currentRoom, setTyping]);
+      if (socket && isTyping) {
+        socket.emit('typing', { roomId: currentRoom, isTyping: false })
+      }
+    }
+  }, [socket, currentRoom, isTyping])
 
   const handleInputChange = (e) => {
-    setInput(e.target.value);
+    setMessage(e.target.value)
 
-    if (!isTyping) {
-      setIsTyping(true);
-      setTyping(true, currentRoom);
+    if (!isTyping && e.target.value.trim()) {
+      setIsTyping(true)
+      if (socket) {
+        socket.emit('typing', { roomId: currentRoom, isTyping: true })
+      }
     }
 
+    // Clear existing timeout
     if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
+      clearTimeout(typingTimeoutRef.current)
     }
 
+    // Set new timeout to stop typing indicator
     typingTimeoutRef.current = setTimeout(() => {
-      setIsTyping(false);
-      setTyping(false, currentRoom);
-    }, 1000);
-  };
+      setIsTyping(false)
+      if (socket) {
+        socket.emit('typing', { roomId: currentRoom, isTyping: false })
+      }
+    }, 1000)
+  }
 
   const handleSubmit = (e) => {
-    e.preventDefault();
-    if (input.trim()) {
-      sendMessage(input.trim(), currentRoom);
-      setInput('');
-      setIsTyping(false);
-      setTyping(false, currentRoom);
+    e.preventDefault()
+    
+    if (message.trim() && !uploading) {
+      onSendMessage(message, 'text')
+      setMessage('')
+      
+      // Stop typing indicator
+      setIsTyping(false)
+      if (socket) {
+        socket.emit('typing', { roomId: currentRoom, isTyping: false })
+      }
       if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
+        clearTimeout(typingTimeoutRef.current)
       }
     }
-  };
+  }
 
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert('File size must be less than 5MB');
-        return;
-      }
-      sendFile(file, file.name, file.type, currentRoom);
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit(e)
     }
-    e.target.value = '';
-  };
+  }
+
+  const handleFileSelect = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    setUploading(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await axios.post('/api/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      })
+
+      const fileUrl = `http://localhost:5000${response.data.url}`
+      const fileType = file.type.startsWith('image/') ? 'image' : 'file'
+      
+      onSendMessage(fileUrl, fileType, response.data.filename || file.name)
+    } catch (error) {
+      console.error('File upload error:', error)
+      alert('Failed to upload file. Please try again.')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
 
   return (
     <div className="message-input-container">
       <form onSubmit={handleSubmit} className="message-input-form">
         <button
           type="button"
-          className="file-button"
+          className="attach-btn"
           onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
           title="Attach file"
         >
-          📎
+          {uploading ? '⏳' : '📎'}
         </button>
         <input
           type="file"
           ref={fileInputRef}
           onChange={handleFileSelect}
           style={{ display: 'none' }}
-          accept="image/*,application/pdf,.doc,.docx"
+          accept="image/*,.pdf,.doc,.docx,.txt"
         />
-        <input
-          type="text"
-          className="message-input"
-          placeholder={`Message #${currentRoom}...`}
-          value={input}
+        <textarea
+          value={message}
           onChange={handleInputChange}
-          maxLength={1000}
+          onKeyPress={handleKeyPress}
+          placeholder="Type a message... (Press Enter to send, Shift+Enter for new line)"
+          rows={1}
+          className="message-input"
+          disabled={uploading}
         />
-        <button type="submit" className="send-button" disabled={!input.trim()}>
-          Send
+        <button
+          type="submit"
+          className="send-btn"
+          disabled={!message.trim() || uploading}
+        >
+          ➤
         </button>
       </form>
     </div>
-  );
+  )
 }
 
-export default MessageInput;
-
+export default MessageInput
 

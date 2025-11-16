@@ -1,61 +1,65 @@
-.message {
+.message-wrapper {
   display: flex;
   flex-direction: column;
-  margin-bottom: 10px;
-  animation: slideIn 0.3s ease-out;
+  margin-bottom: 5px;
 }
 
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.system-message {
+.message-timestamp-divider {
   text-align: center;
   color: #999;
-  font-style: italic;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
+  margin: 15px 0;
   padding: 5px 0;
 }
 
-.own-message {
+.message {
+  display: flex;
+  gap: 10px;
   align-items: flex-end;
+  max-width: 70%;
 }
 
-.other-message {
-  align-items: flex-start;
+.message.own {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+  margin-left: auto;
 }
 
-.message-sender {
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: #667eea;
-  margin-bottom: 4px;
+.message.other {
+  align-self: flex-start;
+}
+
+.message-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .message-content {
-  max-width: 70%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.message-username {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #667eea;
+  padding: 0 5px;
+}
+
+.message-bubble {
+  background: white;
   padding: 10px 15px;
   border-radius: 18px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   position: relative;
 }
 
-.own-message .message-content {
+.message.own .message-bubble {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  border-bottom-right-radius: 4px;
-}
-
-.other-message .message-content {
-  background: #e9ecef;
-  color: #333;
-  border-bottom-left-radius: 4px;
 }
 
 .message-text {
@@ -63,51 +67,28 @@
   line-height: 1.4;
 }
 
-.file-message {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .message-image {
   max-width: 300px;
-  max-height: 300px;
-  border-radius: 8px;
-  cursor: pointer;
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-.file-download {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.message-image img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.message-file a {
   color: inherit;
   text-decoration: none;
-  padding: 8px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  transition: background 0.2s;
-}
-
-.file-download:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.message-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-  font-size: 0.75rem;
-  opacity: 0.8;
+  gap: 5px;
 }
 
-.message-time {
-  font-size: 0.7rem;
-}
-
-.read-receipt {
-  font-size: 0.85rem;
-  color: #4caf50;
+.message.own .message-file a {
+  color: white;
 }
 
 .message-reactions {
@@ -115,86 +96,104 @@
   flex-wrap: wrap;
   gap: 5px;
   margin-top: 8px;
-  position: relative;
+  align-items: center;
 }
 
-.reaction {
-  padding: 4px 8px;
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 12px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.2s;
-}
-
-.other-message .reaction {
+.reaction-btn {
   background: rgba(0, 0, 0, 0.05);
-  border-color: rgba(0, 0, 0, 0.1);
-}
-
-.reaction:hover {
-  transform: scale(1.1);
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.reaction.active {
-  background: rgba(255, 255, 255, 0.4);
-  border-color: rgba(255, 255, 255, 0.6);
-}
-
-.add-reaction-btn {
-  padding: 4px 8px;
-  background: transparent;
-  border: 1px dashed rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 12px;
+  padding: 4px 8px;
+  font-size: 0.9rem;
   cursor: pointer;
-  font-size: 0.85rem;
-  color: inherit;
-  opacity: 0.7;
-  transition: opacity 0.2s;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.add-reaction-btn:hover {
-  opacity: 1;
+.message.own .reaction-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.reaction-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+  transform: scale(1.1);
+}
+
+.reaction-btn.active {
+  background: #667eea;
+  border-color: #667eea;
+  color: white;
+}
+
+.reaction-btn span {
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .reaction-picker {
+  display: none;
+  gap: 5px;
+  background: white;
+  padding: 5px;
+  border-radius: 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
   position: absolute;
   bottom: 100%;
   left: 0;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: 8px;
-  display: flex;
-  gap: 5px;
-  z-index: 10;
   margin-bottom: 5px;
 }
 
-.other-message .reaction-picker {
-  background: #f8f9fa;
+.message-bubble:hover .reaction-picker {
+  display: flex;
 }
 
 .reaction-option {
-  padding: 5px 10px;
-  background: transparent;
+  background: none;
   border: none;
-  border-radius: 6px;
-  cursor: pointer;
   font-size: 1.2rem;
-  transition: background 0.2s;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 50%;
+  transition: transform 0.2s;
 }
 
 .reaction-option:hover {
-  background: #e9ecef;
+  transform: scale(1.3);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.message-footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.message-time {
+  font-size: 0.75rem;
+}
+
+.read-receipt {
+  font-size: 0.9rem;
+  color: #4caf50;
+}
+
+.message.own .read-receipt {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 @media (max-width: 768px) {
-  .message-content {
+  .message {
     max-width: 85%;
   }
-}
 
+  .message-image {
+    max-width: 200px;
+  }
+}
 

@@ -1,106 +1,101 @@
-import { useState } from 'react';
-import { useSocket } from '../socket/socket';
-import './Message.css';
+import { format, formatDistanceToNow } from 'date-fns'
+import './Message.css'
 
-function Message({ message }) {
-  const { addReaction, removeReaction, messageReactions, socket } = useSocket();
-  const [showReactions, setShowReactions] = useState(false);
-  const reactions = messageReactions[message.id] || {};
+const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
-  if (message.system) {
-    return (
-      <div className="message system-message">
-        <span>{message.message}</span>
-      </div>
-    );
+function Message({ message, currentUser, showAvatar, showTimestamp, onReaction }) {
+  const isOwnMessage = message.userId === currentUser.id
+
+  const handleReactionClick = (reaction) => {
+    if (onReaction) {
+      onReaction(message.id, reaction)
+    }
   }
 
-  const isOwnMessage = message.senderId === socket.id;
-  const formattedTime = new Date(message.timestamp).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  const handleReactionClick = (emoji) => {
-    const userReacted = reactions[emoji]?.includes(socket.id);
-    if (userReacted) {
-      removeReaction(message.id, emoji);
-    } else {
-      addReaction(message.id, emoji);
+  const renderContent = () => {
+    if (message.type === 'image') {
+      return (
+        <div className="message-image">
+          <img src={message.text} alt="Shared image" />
+        </div>
+      )
+    } else if (message.type === 'file') {
+      return (
+        <div className="message-file">
+          <a href={message.text} target="_blank" rel="noopener noreferrer" download>
+            📎 {message.filename || 'File'}
+          </a>
+        </div>
+      )
     }
-  };
-
-  const reactionEmojis = ['👍', '❤️', '😂', '🎉', '🔥', '👏'];
+    return <div className="message-text">{message.text}</div>
+  }
 
   return (
-    <div className={`message ${isOwnMessage ? 'own-message' : 'other-message'}`}>
-      {!isOwnMessage && (
-        <div className="message-sender">{message.sender}</div>
-      )}
-      
-      <div className="message-content">
-        {message.isFile ? (
-          <div className="file-message">
-            {message.fileType?.startsWith('image/') ? (
-              <img src={message.file} alt={message.fileName} className="message-image" />
-            ) : (
-              <a href={message.file} download={message.fileName} className="file-download">
-                📎 {message.fileName}
-              </a>
-            )}
-          </div>
-        ) : (
-          <div className="message-text">{message.message}</div>
-        )}
-        
-        <div className="message-meta">
-          <span className="message-time">{formattedTime}</span>
-          {message.readBy && message.readBy.length > 0 && (
-            <span className="read-receipt">✓✓</span>
-          )}
+    <div className={`message-wrapper ${isOwnMessage ? 'own-message' : ''}`}>
+      {showTimestamp && (
+        <div className="message-timestamp-divider">
+          {format(new Date(message.timestamp), 'MMM d, yyyy h:mm a')}
         </div>
+      )}
 
-        <div className="message-reactions">
-          {Object.entries(reactions).map(([emoji, userIds]) => (
-            <button
-              key={emoji}
-              className={`reaction ${userIds.includes(socket.id) ? 'active' : ''}`}
-              onClick={() => handleReactionClick(emoji)}
-              title={userIds.join(', ')}
-            >
-              {emoji} {userIds.length}
-            </button>
-          ))}
-          
-          <button
-            className="add-reaction-btn"
-            onClick={() => setShowReactions(!showReactions)}
-          >
-            +
-          </button>
-          
-          {showReactions && (
-            <div className="reaction-picker">
-              {reactionEmojis.map(emoji => (
+      <div className={`message ${isOwnMessage ? 'own' : 'other'}`}>
+        {showAvatar && !isOwnMessage && (
+          <img src={message.avatar} alt={message.username} className="message-avatar" />
+        )}
+
+        <div className="message-content">
+          {!isOwnMessage && showAvatar && (
+            <div className="message-username">{message.username}</div>
+          )}
+
+          <div className="message-bubble">
+            {renderContent()}
+
+            <div className="message-reactions">
+              {Object.entries(message.reactions || {}).map(([reaction, userIds]) => (
                 <button
-                  key={emoji}
-                  className="reaction-option"
-                  onClick={() => {
-                    handleReactionClick(emoji);
-                    setShowReactions(false);
-                  }}
+                  key={reaction}
+                  className={`reaction-btn ${
+                    userIds.includes(currentUser.id) ? 'active' : ''
+                  }`}
+                  onClick={() => handleReactionClick(reaction)}
+                  title={userIds.length > 1 ? `${userIds.length} reactions` : ''}
                 >
-                  {emoji}
+                  {reaction} {userIds.length > 1 && <span>{userIds.length}</span>}
                 </button>
               ))}
+
+              <div className="reaction-picker">
+                {REACTIONS.map((reaction) => (
+                  <button
+                    key={reaction}
+                    className="reaction-option"
+                    onClick={() => handleReactionClick(reaction)}
+                    title="Add reaction"
+                  >
+                    {reaction}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
+
+            <div className="message-footer">
+              <span className="message-time">
+                {format(new Date(message.timestamp), 'h:mm a')}
+              </span>
+              {isOwnMessage && (
+                <span className="read-receipt">
+                  {message.readBy && message.readBy.length > 1 ? '✓✓' : '✓'}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
-  );
+  )
 }
 
-export default Message;
-
+export default Message
 

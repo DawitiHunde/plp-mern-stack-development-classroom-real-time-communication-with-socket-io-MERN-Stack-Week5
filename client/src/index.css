@@ -14,8 +14,22 @@ body {
   min-height: 100vh;
 }
 
-#root {
-  min-height: 100vh;
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
 }
 
+#root {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+@media (max-width: 768px) {
+  #root {
+    padding: 10px;
+  }
+}
 
